@@ -1,0 +1,12 @@
+fx_left 693.903
+fy_left 693.903
+fx_right 693.903
+fy_right 693.903
+cx_left 621.986
+cy_left 346.163
+cx_right 621.986
+cy_right 346.163
+cam_tx 0.119948
+rot_x 0
+rot_y 0
+rot_z 0

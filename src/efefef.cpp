@@ -4,12 +4,12 @@
 #include <fstream>
 using namespace sl;
 using namespace std;
-
+void transformPose(sl::Transform &pose, float tx);
 cv::Mat slMat2cvMat(Mat& input);
 int writeCamParam(CalibrationParameters cp)
 {
   ofstream myfile;
-  myfile.open ("camparam.txt");
+  myfile.open ("../Data/camparam.txt");
   myfile << "fx_left " << cp.left_cam.fx <<endl;
   myfile << "fy_left " << cp.left_cam.fy<<endl;
   myfile << "fx_right " << cp.right_cam.fx<<endl;
@@ -29,17 +29,28 @@ int main(int argc, char **argv) {
 
     // Create a ZED camera object
     Camera zed;
+    Pose camera_pose;
 
     // Set configuration parameters
     InitParameters init_params;
+    init_params.camera_resolution = RESOLUTION_HD720;
     init_params.sdk_verbose = false; // Disable verbose mode
-    initParameters.depth_mode = DEPTH_MODE_PERFORMANCE;
-    initParameters.coordinate_units = UNIT_METER;
-    initParameters.coordinate_system = COORDINATE_SYSTEM_RIGHT_HANDED_Y_UP;
-    
+    init_params.depth_mode = DEPTH_MODE_PERFORMANCE;
+    init_params.coordinate_units = UNIT_METER;
+
+
     // Open the camera
-    ERROR_CODE err = zed.open();
+    ERROR_CODE err = zed.open(init_params);
     if (err != SUCCESS) exit(-1);
+
+    // Set positional tracking parameters
+    TrackingParameters trackingParameters;
+    trackingParameters.initial_world_transform = sl::Transform::identity();
+    trackingParameters.enable_spatial_memory = true;
+
+    float translation_left_to_center = zed.getCameraInformation().calibration_parameters.T.x * 0.5f;
+    // Start motion tracking
+    zed.enableTracking(trackingParameters);
 
     CalibrationParameters calibration_params = zed.getCameraInformation().calibration_parameters;
     writeCamParam(calibration_params);
@@ -52,40 +63,77 @@ int main(int argc, char **argv) {
     int new_width = image_size.width / 2;
     int new_height = image_size.height / 2;
 
-    Mat image_zed(new_width, new_height, MAT_TYPE_8U_C4);
-    cv::Mat image_ocv = slMat2cvMat(image_zed);
+    Mat image_zed_left(new_width, new_height, MAT_TYPE_8U_C4);
+    cv::Mat image_ocv_left = slMat2cvMat(image_zed_left);
+    Mat image_zed_right(new_width, new_height, MAT_TYPE_8U_C4);
+    cv::Mat image_ocv_right = slMat2cvMat(image_zed_right);
+
     Mat depth_image_zed(new_width, new_height, MAT_TYPE_8U_C4);
     cv::Mat depth_image_ocv = slMat2cvMat(depth_image_zed);
     Mat point_cloud;
 
+    ofstream myfile;
+    myfile.open ("../Data/data.txt");
+
     // Loop until 'q' is pressed
+    int index = 0;
     char key = ' ';
+    cv::namedWindow("input", CV_WINDOW_AUTOSIZE);
     while (key != 'q') {
        if (zed.grab(runtime_parameters) == SUCCESS) {
+           TRACKING_STATE tracking_state = zed.getPosition(camera_pose, sl::REFERENCE_FRAME_WORLD);
+            if (tracking_state == TRACKING_STATE_OK)
+            {
+              if (index >=20)
+              {
+                transformPose(camera_pose.pose_data, translation_left_to_center); // Get the pose at the center of the camera (baseline/2 on X axis)
 
-           // Retrieve the left image, depth image in half-resolution
-           zed.retrieveImage(image_zed, VIEW_LEFT, MEM_CPU, new_width, new_height);
-           zed.retrieveImage(depth_image_zed, VIEW_DEPTH, MEM_CPU, new_width, new_height);
+                // Get quaternion, rotation and translation
+                sl::float4 quaternion = camera_pose.getOrientation();
+                sl::float3 rotation = camera_pose.getEulerAngles(); // Only use Euler angles to display absolute angle values. Use quaternions for transforms.
+                sl::float3 translation = camera_pose.getTranslation();
 
-           // Retrieve the RGBA point cloud in half-resolution
-           // To learn how to manipulate and display point clouds, see Depth Sensing sample
-           //zed.retrieveMeasure(point_cloud, MEASURE_XYZRGBA, MEM_CPU, new_width, new_height);
+                myfile << translation[2] << ", " << translation[0] << ", " << translation[1] << ", " << rotation[2] << ", " << rotation[0] << ", " << rotation[1] << endl;
+                cout << translation[2] << ", " << translation[0] << ", " << translation[1] << endl;
+                cout << rotation[2] << ", " << rotation[0] << ", " << rotation[1] << endl;
 
-           // Display image and depth using cv:Mat which share sl:Mat data
-           cv::imshow("Image", image_ocv);
-           cv::imshow("Depth", depth_image_ocv);
+                // Retrieve the left image, depth image in half-resolution
+                zed.retrieveImage(image_zed_left, VIEW_LEFT, MEM_CPU, new_width, new_height);
+                zed.retrieveImage(image_zed_right, VIEW_RIGHT, MEM_CPU, new_width, new_height);
+                zed.retrieveImage(depth_image_zed, VIEW_DEPTH, MEM_CPU, new_width, new_height);
 
-           // Handle key event
-           key = cv::waitKey(10);
-           //processKeyEvent(zed, key);
+                // Display image and depth using cv:Mat which share sl:Mat data
+                // cv::imshow("Image_l", image_ocv_left);
+                // cv::imshow("Image_r", image_ocv_right);
+                // cv::imshow("Depth", depth_image_ocv);
+                //cout << to_string(index) + "left.jpg" << endl;
+                cv::imwrite("../Data/left/" + to_string(index-20) + ".jpg", image_ocv_left);
+                cv::imwrite("../Data/right/" + to_string(index-20) + ".jpg", image_ocv_right);
+                // Handle key event
+                key = cv::waitKey(10);
+              }
+
+              index++;
+              //processKeyEvent(zed, key);
+            }
+
         }
     }
 
 
-
+    myfile.close();
     // Close the camera
     zed.close();
     return 0;
+}
+
+void transformPose(sl::Transform &pose, float tx) {
+    sl::Transform transform_;
+    transform_.setIdentity();
+    // Move the tracking frame by tx along the X axis
+    transform_.tx = tx;
+    // Apply the transformation
+    pose = Transform::inverse(transform_) * pose * transform_;
 }
 
 cv::Mat slMat2cvMat(Mat& input) {
