@@ -78,6 +78,9 @@ int main(int argc, char **argv) {
     // Loop until 'q' is pressed
     int index = 0;
     char key = ' ';
+    long prevTime = 0;
+    long currTime = 0;
+    int dt = 0;
     cv::namedWindow("input", CV_WINDOW_AUTOSIZE);
     while (key != 'q') {
        if (zed.grab(runtime_parameters) == SUCCESS) {
@@ -93,20 +96,27 @@ int main(int argc, char **argv) {
                 sl::float3 rotation = camera_pose.getEulerAngles(); // Only use Euler angles to display absolute angle values. Use quaternions for transforms.
                 sl::float3 translation = camera_pose.getTranslation();
 
-                myfile << translation[2] << ", " << translation[0] << ", " << translation[1] << ", " << rotation[2] << ", " << rotation[0] << ", " << rotation[1] << endl;
-                cout << translation[2] << ", " << translation[0] << ", " << translation[1] << endl;
-                cout << rotation[2] << ", " << rotation[0] << ", " << rotation[1] << endl;
+                myfile << dt << ", " << translation[2] << ", " << translation[0] << ", " << translation[1] << ", " << rotation[2] << ", " << rotation[0] << ", " << rotation[1] << endl;
+                //cout << translation[2] << ", " << translation[0] << ", " << translation[1] << endl;
+                //cout << rotation[2] << ", " << rotation[0] << ", " << rotation[1] << endl;
 
                 // Retrieve the left image, depth image in half-resolution
                 zed.retrieveImage(image_zed_left, VIEW_LEFT, MEM_CPU, new_width, new_height);
                 zed.retrieveImage(image_zed_right, VIEW_RIGHT, MEM_CPU, new_width, new_height);
                 zed.retrieveImage(depth_image_zed, VIEW_DEPTH, MEM_CPU, new_width, new_height);
+                currTime = camera_pose.timestamp;
+                dt = (currTime - prevTime);
+
+
+                cout << 1000000000.0/dt<< endl;
+                prevTime = currTime;
 
                 // Display image and depth using cv:Mat which share sl:Mat data
                 // cv::imshow("Image_l", image_ocv_left);
                 // cv::imshow("Image_r", image_ocv_right);
                 // cv::imshow("Depth", depth_image_ocv);
                 //cout << to_string(index) + "left.jpg" << endl;
+
                 cv::imwrite("../Data/left/" + to_string(index-20) + ".jpg", image_ocv_left);
                 cv::imwrite("../Data/right/" + to_string(index-20) + ".jpg", image_ocv_right);
                 // Handle key event
